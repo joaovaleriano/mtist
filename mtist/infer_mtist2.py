@@ -96,6 +96,8 @@ def prepare_data_for_inference(did):
     times = {}
     nz_masks = {}
     gmeans = {}
+    ameans = {}
+    nomeans = {}
 
     # FOR EVERY TIMESERIES INDIVIDUALLY
     for i_code in range(len(np.unique(codes))):
@@ -113,6 +115,8 @@ def prepare_data_for_inference(did):
         times[i_code] = []  # times matrix for each
         nz_masks[i_code] = []  # non-zero masks
         gmeans[i_code] = []  # geometric means
+        ameans[i_code] = []  # arithmetic means
+        nomeans[i_code] = []  # no means
 
         # FOR EACH SPECIES WITHIN A SINGLE TIME SERIES IN `i_code`
         for i_species in range(n_species):
@@ -138,8 +142,21 @@ def prepare_data_for_inference(did):
                 if cur_species[j] <= 0 or cur_species[j + 1] <= 0:
                     valid_int_idx_tmp[j] = False
 
+            # Calculate arithm_mean for each individal interval
+            # (pair of timepoints). TODO: This could be refactored.
+            ameans_tmp = np.ones(cur_n_intervals)
+            valid_int_idx_tmp = np.ones(cur_n_intervals, dtype=bool)
+            for j in range(cur_n_intervals):
+                cur_amean = (cur_species[j] + cur_species[j+1])/2
+                ameans_tmp[j] = cur_amean
+
+                if cur_species[j] <= 0 or cur_species[j + 1] <= 0:
+                    valid_int_idx_tmp[j] = False
+
             # Save the gmeans, nz_masks
             gmeans[i_code].append(gmeans_tmp)
+            ameans[i_code].append(ameans_tmp)
+            nomeans[i_code].append(cur_species[:-1])
             nz_masks[i_code].append(valid_int_idx_tmp)
 
     # Turn into dfs because that's easy for me
@@ -150,16 +167,24 @@ def prepare_data_for_inference(did):
     df_dlogydt = pd.DataFrame(dlogydt, columns=cols, index=idx)
     df_nzmask = pd.DataFrame(nz_masks, columns=cols, index=idx, dtype=bool)
     df_geom = pd.DataFrame(gmeans, columns=cols, index=idx)
+    df_arithm = pd.DataFrame(ameans, columns=cols, index=idx)
+    df_nomean = pd.DataFrame(nomeans, columns=cols, index=idx)
 
-    return df_geom, df_dlogydt, df_nzmask, n_species
+    return df_geom, df_arithm, df_nomean, df_dlogydt, df_nzmask, n_species
 
 
-def infer_from_did(did, debug=False):
+def infer_from_did(did, debug=False, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     ####### BEGIN THE INFERENCE!!!!! #######
     regs = []
@@ -224,14 +249,20 @@ def infer_from_did(did, debug=False):
         return inferred
 
 
-def infer_from_did_ols_with_p(did, debug=False, save=False, th=None):
+def infer_from_did_ols_with_p(did, debug=False, save=False, th=None, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
     Will return info as well if debug=True"""
 
     if th is None:
         th = 0.001
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     ####### BEGIN THE INFERENCE!!!!! #######
     regs = []
@@ -339,12 +370,18 @@ def infer_from_did_ols_with_p(did, debug=False, save=False, th=None):
         return inferred
 
 
-def infer_from_did_lasso(did, debug=False):
+def infer_from_did_lasso(did, debug=False, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     ####### BEGIN THE INFERENCE!!!!! #######
     regs = []
@@ -408,12 +445,18 @@ def infer_from_did_lasso(did, debug=False):
         return inferred
 
 
-def infer_from_did_lasso_cv(did, debug=False):
+def infer_from_did_lasso_cv(did, debug=False, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     regs = []
     intercepts = []
@@ -496,12 +539,18 @@ def infer_from_did_lasso_cv(did, debug=False):
         return inferred
 
 
-def infer_from_did_ridge(did, debug=False):
+def infer_from_did_ridge(did, debug=False, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     ####### BEGIN THE INFERENCE!!!!! #######
     regs = []
@@ -565,12 +614,18 @@ def infer_from_did_ridge(did, debug=False):
         return inferred
 
 
-def infer_from_did_ridge_cv(did, debug=False):
+def infer_from_did_ridge_cv(did, debug=False, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     regs = []
     intercepts = []
@@ -652,11 +707,17 @@ def infer_from_did_ridge_cv(did, debug=False):
         return inferred
 
 
-def infer_from_did_elasticnet(did, debug=False):
+def infer_from_did_elasticnet(did, debug=False, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     ####### BEGIN THE INFERENCE!!!!! #######
     regs = []
@@ -720,12 +781,18 @@ def infer_from_did_elasticnet(did, debug=False):
         return inferred
 
 
-def infer_from_did_elasticnet_cv(did, debug=False):
+def infer_from_did_elasticnet_cv(did, debug=False, mean="geom"):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    if mean=="geom":
+        df_geom, _, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    elif mean=="arithm":
+        _, df_geom, _, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    else:
+        _, _, df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    del(_)
 
     regs = []
     intercepts = []
@@ -1048,7 +1115,7 @@ def calculate_es_score(true_aij, inferred_aij) -> float:
     return ES_score
 
 
-def infer_and_score_all(save_inference=True, save_scores=True):
+def infer_and_score_all(save_inference=True, save_scores=True, mean="geom"):
     """returns df_es_scores, inferred_aijs"""
 
     # Load meta and gts
@@ -1076,7 +1143,7 @@ def infer_and_score_all(save_inference=True, save_scores=True):
 
         # Complete the inference
         did = int(fns[i].split(".csv")[0].split("dataset_")[-1])
-        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did)
+        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did, mean=mean)
 
         # Obtain gt used in the dataset
         gt_used = meta.loc[did, "ground_truth"]
@@ -1107,7 +1174,7 @@ def infer_and_score_all(save_inference=True, save_scores=True):
                 os.path.join(
                     mu.GLOBALS.MTIST_DATASET_DIR,
                     f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inference_result"+\
-                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}",
+                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}_{mean}_mean",
                 )
             )
         except Exception as e:
@@ -1119,7 +1186,7 @@ def infer_and_score_all(save_inference=True, save_scores=True):
                 os.path.join(
                     mu.GLOBALS.MTIST_DATASET_DIR,
                     f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inference_result"+\
-                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}",
+                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}_{mean}_mean",
                     f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inferred_aij_{did}.csv",
                 ),
                 inferred_aijs[key],
@@ -1131,7 +1198,7 @@ def infer_and_score_all(save_inference=True, save_scores=True):
             os.path.join(
                 mu.GLOBALS.MTIST_DATASET_DIR,
                 f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inference_result"+\
-                f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}",
+                f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}_{mean}_mean",
                 f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}es_scores.csv",
             )
         )
@@ -1139,7 +1206,7 @@ def infer_and_score_all(save_inference=True, save_scores=True):
     return (df_es_scores, inferred_aijs)
 
 
-def infer_and_save_portion(dids, save_inference=True, save_scores=True):
+def infer_and_save_portion(dids, save_inference=True, save_scores=True, mean="geom"):
     """returns df_es_scores, inferred_aijs"""
 
     # Load meta and gts
@@ -1166,7 +1233,7 @@ def infer_and_save_portion(dids, save_inference=True, save_scores=True):
 
         # Complete the inference
         did = int(fns[i].split(".csv")[0].split("dataset_")[-1])
-        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did)
+        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did, mean=mean)
 
         # Obtain gt used in the dataset
         gt_used = meta.loc[did, "ground_truth"]
@@ -1199,7 +1266,7 @@ def infer_and_save_portion(dids, save_inference=True, save_scores=True):
                 os.path.join(
                     mu.GLOBALS.MTIST_DATASET_DIR,
                     f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inference_result"+\
-                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}",
+                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}_{mean}_mean",
                 )
             )
         except Exception as e:
@@ -1211,7 +1278,7 @@ def infer_and_save_portion(dids, save_inference=True, save_scores=True):
                 os.path.join(
                     mu.GLOBALS.MTIST_DATASET_DIR,
                     f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inference_result"+\
-                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}",
+                    f"_{INFERENCE_DEFAULTS.INFERENCE_FUNCTION.__name__}_{mean}_mean",
                     f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inferred_aij_{did}.csv",
                 ),
                 inferred_aijs[key],
