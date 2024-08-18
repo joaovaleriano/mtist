@@ -168,6 +168,7 @@ growth_rates = {
     "Tiger": -1.5,
     "Zebra": 0.65,
 }
+food_source = {"a": 0.1, "beta": 0.1}
 species_styles = {
     "Antilope": {"c": "#ceb301", "s": "-", "w": 1},
     "Baboon": {"c": "#a00498", "s": "-", "w": 1},
@@ -195,10 +196,33 @@ def _lv(**kwargs):
         A = params["_A"]
         mu = params["_mu"]
         dy = np.multiply(np.dot(A, y) + mu, y)
-        return dy
+        return dy 
 
     return lv_model_full_system
 
+
+def _lv_food(**kwargs):
+    """Helper function to set up ODE system"""
+    params = {
+        "_A": np.array([[-1, 1, 1], [-1, -1, -1], [3, -3, -1]]),
+        "_mu": np.array([0.1, 2, 0.04]),
+        "_noise_scale": 0,
+        "_a": 0.,
+        "_beta": 0.,
+    }
+    params.update(kwargs)
+
+    def lv_model_full_system(t, y):
+        A = params["_A"]
+        mu = params["_mu"]
+        a = params["_a"]
+        beta = params["_beta"]
+        dy = np.zeros(len(mu)+1)
+        dy[:-1] = np.multiply(np.dot(A, y[:-1]) + mu + beta*y[-1], y[:-1])
+        dy[-1] = a - beta*np.sum(y[:-1])*y[-1]
+        return dy
+
+    return lv_model_full_system
 
 def run_lv(
     A,
@@ -243,7 +267,7 @@ def run_lv(
         while r.successful() and r.t < tend:
             sol_t_all = np.append(sol_t_all, r.t)
             sol_y_all = np.append(sol_y_all, r.y)
-            r.t + dt
+            r.t += dt
             r.integrate(min(r.t + dt, tend)) # implement Joao fix
         yinit = r.y
         perturbation = [_y * noise * np.random.randn() for _y in yinit]
@@ -254,6 +278,69 @@ def run_lv(
     sol_y = np.reshape(sol_y, [-1, len(mu)])
     sol_t = np.reshape(sol_t, [-1, 1])
     sol_y_all = np.reshape(sol_y_all, [-1, len(mu)])
+    sol_t_all = np.reshape(sol_t_all, [-1, 1])
+    sol_y = sol_y[np.linspace(0, sol_y.shape[0] - 1, sample_freq, dtype=int)]
+    sol_t = sol_t[np.linspace(0, sol_t.shape[0] - 1, sample_freq, dtype=int)]
+    return (sol_t, sol_y, sol_t_all, sol_y_all, first_yinit)
+
+
+def run_lv_w_food(
+    A,
+    mu,
+    a,
+    beta,
+    species_names,
+    random_seed=0,
+    tend=5,
+    dt=0.1,
+    yinit_specific={},
+    noise=0,
+    sample_freq=100,
+):
+    """Solve ODE ecosystem."""
+    if sample_freq > 100:
+        warnings.warn(
+            "Currently noise is added 100 times over the total simulation period. Choosing a sample frequency higher than that is not supported at this point.",
+            RuntimeWarning,
+        )
+    np.random.seed(seed=random_seed)
+    # Assign random initial densities
+    # update if specific starting densities are chosen
+    yinit = np.random.randint(1, 10, len(mu)+1) / 100
+    yinit = dict(zip(sorted(species_names) + ["food"], yinit))
+    yinit.update(yinit_specific)
+    # yinit = [yinit[s] for s in sorted(yinit.keys())]
+    yinit = [yinit[s] for s in yinit.keys()]
+    first_yinit = yinit
+    ### solve
+    sol_t_all = np.array([])
+    sol_y_all = np.array([])
+    sol_t = np.array([])
+    sol_y = np.array([])
+    # f
+    r = sp.ode(_lv_food(_A=A, _mu=mu, _a=a, _beta=beta)).set_integrator("vode")
+    r.set_initial_value(yinit, 0)
+    sol_t = np.append(sol_t, 0)
+    sol_y = np.append(sol_y, yinit)
+    timepoints = np.linspace(0, tend, 100)
+    for i, t in enumerate(timepoints[0:-1]):
+        tend = timepoints[i + 1]
+        r = sp.ode(_lv_food(_A=A, _mu=mu, _a=a, _beta=beta)).set_integrator("vode")
+        r.set_initial_value(yinit, timepoints[i])
+        while r.successful() and r.t < tend:
+            sol_t_all = np.append(sol_t_all, r.t)
+            sol_y_all = np.append(sol_y_all, r.y)
+            r.t + dt
+            r.integrate(min(r.t + dt, tend)) # implement Joao fix
+        yinit = r.y
+        perturbation = [_y * noise * np.random.randn() for _y in yinit]
+        yinit = yinit + perturbation
+        yinit = [_y if _y >= 2.5e-3 else 0 for _y in yinit]
+        sol_t = np.append(sol_t, r.t)
+        sol_y = np.append(sol_y, yinit)
+    sol_y = np.reshape(sol_y, [-1, len(mu)+1])
+    sol_t = np.reshape(sol_t, [-1, 1])
+    sol_y_all = np.reshape(sol_y_all, [-1, len(mu)+1])
     sol_t_all = np.reshape(sol_t_all, [-1, 1])
     sol_y = sol_y[np.linspace(0, sol_y.shape[0] - 1, sample_freq, dtype=int)]
     sol_t = sol_t[np.linspace(0, sol_t.shape[0] - 1, sample_freq, dtype=int)]

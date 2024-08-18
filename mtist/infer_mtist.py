@@ -59,14 +59,17 @@ def calc_dlogydt(x, times):
         return (dlogydts, dts, times, valid_idxs_list)
 
 
-def prepare_data_for_inference(did):
+def prepare_data_for_inference(did, food_source=False):
 
     # `full_df`: is the full pd.DataFrame from cvs file
     # `full_time_column`: is time column (ndarray nrows x 1)
     # `X`: is JUST the abundances (ndarray nrows x n_species)
     # `meta_spec`: is all of the metadata contained in `full_df`
     path_to_did_dataset = os.path.join(mu.GLOBALS.MTIST_DATASET_DIR, f"dataset_{did}.csv")
-    full_df, full_time_column, X, meta_spec = mu.load_dataset(path_to_did_dataset)
+    if food_source:
+        full_df, full_time_column, X, food, meta_spec = mu.load_dataset(path_to_did_dataset, food_source=True)
+    else:
+        full_df, full_time_column, X, meta_spec = mu.load_dataset(path_to_did_dataset)
 
     # Premise:
     # We must calclate, for every time series (delineated in
@@ -100,6 +103,8 @@ def prepare_data_for_inference(did):
         # Get individual timeseries
         mask = codes == i_code
         cur_timeseries = X[mask].copy()
+        if food_source:
+            food_ts = food[mask].copy()
 
         # Calculate number of (t, t+1) intervals
         cur_n_intervals = cur_timeseries.shape[0] - 1
@@ -129,6 +134,8 @@ def prepare_data_for_inference(did):
             valid_int_idx_tmp = np.ones(cur_n_intervals, dtype=bool)
             for j in range(cur_n_intervals):
                 cur_gmean = np.sqrt(cur_species[j] * cur_species[j + 1])
+                # cur_gmean = cur_species[j]
+                # cur_gmean = (cur_species[j] + cur_species[j+1])/2
                 gmeans_tmp[j] = cur_gmean
 
                 if cur_species[j] <= 0 or cur_species[j + 1] <= 0:
@@ -138,24 +145,51 @@ def prepare_data_for_inference(did):
             gmeans[i_code].append(gmeans_tmp)
             nz_masks[i_code].append(valid_int_idx_tmp)
 
+        if food_source:
+            # Calculate dlogydt, dt, times#
+#            x, y, z, _ = calc_dlogydt(food_ts, full_time_column[mask])
+#
+#            dlogfdt[i_code].append(x)
+
+            # Calculate geom_mean for each individal interval
+            # (pair of timepoints). TODO: This could be refactored.
+            food_gmeans_tmp = np.ones(cur_n_intervals)
+            valid_int_idx_tmp = np.ones(cur_n_intervals, dtype=bool)
+            for j in range(cur_n_intervals):
+                # food_cur_gmean = np.sqrt(food_ts[j] * food_ts[j+1])
+                # food_cur_gmean = food_ts[j] 
+                food_cur_gmean = (food_ts[j] + food_ts[j+1])/2
+                food_gmeans_tmp[j] = food_cur_gmean
+
+                if food_ts[j] <= 0 or food_ts[j+1] <= 0:
+                    valid_int_idx_tmp[j] = False
+
+            # Save the gmeans, nz_masks
+            gmeans[i_code].append(food_gmeans_tmp)
+            nz_masks[i_code].append(valid_int_idx_tmp)
+
     # Turn into dfs because that's easy for me
     cols = pd.Index(range(len(np.unique(codes))), name="timeseries_id")
+    if food_source:
+        idx_mask = pd.Index(range(X.shape[1]+1), name="species_id")
+    else:
+        idx_mask = pd.Index(range(X.shape[1]), name="species_id")
     idx = pd.Index(range(X.shape[1]), name="species_id")
 
     # df_times = pd.DataFrame(times, columns=cols, index=idx)
     df_dlogydt = pd.DataFrame(dlogydt, columns=cols, index=idx)
-    df_nzmask = pd.DataFrame(nz_masks, columns=cols, index=idx, dtype=bool)
-    df_geom = pd.DataFrame(gmeans, columns=cols, index=idx)
+    df_nzmask = pd.DataFrame(nz_masks, columns=cols, index=idx_mask, dtype=bool)
+    df_geom = pd.DataFrame(gmeans, columns=cols, index=idx_mask)
 
     return df_geom, df_dlogydt, df_nzmask, n_species
 
 
-def infer_from_did(did, debug=False):
+def infer_from_did(did, debug=False, food_source=False):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did, food_source=food_source)
 
     ####### BEGIN THE INFERENCE!!!!! #######
     regs = []
@@ -173,9 +207,14 @@ def infer_from_did(did, debug=False):
         cur_mask = np.concatenate(df_nzmask.loc[focal_species].values)
 
         # Get the X to predict, only take valid intervals
-        cur_gmeans = np.array(
-            [np.concatenate(df_geom.loc[i, :].values) for i in range(n_species)]
-        ).T
+        if food_source:
+            cur_gmeans = np.array(
+                [np.concatenate(df_geom.loc[i, :].values) for i in range(n_species+1)]
+            ).T
+        else:
+            cur_gmeans = np.array(
+                [np.concatenate(df_geom.loc[i, :].values) for i in range(n_species)]
+            ).T
 
         cur_gmeans = cur_gmeans[cur_mask, :].copy()
 
@@ -403,7 +442,7 @@ def infer_from_did_lasso(did, debug=False):
         return inferred
 
 
-def infer_from_did_lasso_cv(did, debug=False):
+def infer_from_did_lasso_cv(did, debug=False, food_source=False):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
@@ -559,7 +598,7 @@ def infer_from_did_ridge(did, debug=False):
         return inferred
 
 
-def infer_from_did_ridge_cv(did, debug=False):
+def infer_from_did_ridge_cv(did, debug=False, food_source=False):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
@@ -1055,8 +1094,8 @@ def calculate_es_score(true_aij, inferred_aij) -> float:
     ES_score: float
     """
 
-    truth = pd.DataFrame(true_aij).copy()
-    inferred = pd.DataFrame(inferred_aij).copy()
+    truth = true_aij.copy()
+    inferred = inferred_aij.copy()
 
     if truth.shape != inferred.shape:
         raise ValueError("truth and inferred must be the same shape")
@@ -1066,18 +1105,15 @@ def calculate_es_score(true_aij, inferred_aij) -> float:
 
     # compare sign: agreement when == -2 or +2, disagreement when 0
     nonzero_sign = np.sign(inferred)[mask] + np.sign(truth)[mask]
-    corr_sign = (np.abs(nonzero_sign) == 2).sum().sum()
-    opposite_sign = (np.abs(nonzero_sign) == 0).sum().sum()
-
-    # count incorrect non-zero coefficients
-    wrong_nz = (truth[mask] == 0).sum().sum()
+    corr_sign = (np.abs(nonzero_sign) == 2).sum()
+    opposite_sign = (np.abs(nonzero_sign) == 0).sum()
 
     # combine
     unscaled_score = corr_sign - opposite_sign
 
     # scale by theoretical extrema
-    truth_nz_counts = (truth != 0).sum().sum()
-    truth_z_counts = len(truth.index) ** 2 - truth_nz_counts
+    truth_nz_counts = (truth != 0).sum()
+    
     theoretical_min = -truth_nz_counts
     theoretical_max = truth_nz_counts
 
@@ -1086,14 +1122,17 @@ def calculate_es_score(true_aij, inferred_aij) -> float:
     return ES_score
 
 
-def infer_and_score_all(save_inference=True, save_scores=True):
+def infer_and_score_all(save_inference=True, save_scores=True, food_source=False):
     """returns df_es_scores, inferred_aijs"""
 
     # Load meta and gts
     meta = pd.read_csv(os.path.join(mu.GLOBALS.MTIST_DATASET_DIR, "mtist_metadata.csv")).set_index(
         "did"
     )
-    aijs, _ = mu.load_ground_truths(mu.GLOBALS.GT_DIR)
+    if food_source:
+        aijs, _, foods = mu.load_ground_truths(mu.GLOBALS.GT_DIR, food_source=True)
+    else:
+        aijs, _ = mu.load_ground_truths(mu.GLOBALS.GT_DIR)
 
     # Begin inference
 
@@ -1104,21 +1143,32 @@ def infer_and_score_all(save_inference=True, save_scores=True):
 
     # th = INFERENCE_DEFAULTS.inference_threshold  # for the floored_scores
     raw_scores = {}
+    raw_scores_food = {}
     # floored_scores = {}
     inferred_aijs = {}
+    inferred_aijs_food = {}
 
     for fn in fns:
 
         # Complete the inference
         did = int(fn.split(".csv")[0].split("dataset_")[-1])
-        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did)
+        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did, food_source=food_source)
 
         # Obtain gt used in the dataset
         gt_used = meta.loc[did, "ground_truth"]
         true_aij = aijs[gt_used]
 
         # Calculate raw ES score
-        es_score = calculate_es_score(true_aij, inferred_aij)
+
+        if food_source:
+            es_score = calculate_es_score(true_aij, inferred_aij[:,:-1])
+
+            true_beta = foods[gt_used][1]
+            true_aij_food = np.hstack([true_aij, np.ones((true_aij.shape[0],1))*true_beta])
+            es_score_food = calculate_es_score(true_aij_food, inferred_aij)
+
+        else:
+            es_score = calculate_es_score(true_aij, inferred_aij)
 
         # Calculate floored ES score
         # floored_inferred_aij = inferred_aij.copy()  # copy aij
@@ -1128,12 +1178,25 @@ def infer_and_score_all(save_inference=True, save_scores=True):
 
         # Save the scores
         raw_scores[did] = es_score
+        if food_source:
+            raw_scores_food[did] = es_score_food
         # floored_scores[did] = es_score_floored
         inferred_aijs[did] = inferred_aij.copy()
 
     df_es_scores = pd.DataFrame(
         [
             raw_scores,
+            # floored_scores
+        ],
+        index=[
+            "raw",
+            # "floored"
+        ],
+    ).T.sort_index()
+
+    df_es_scores_food = pd.DataFrame(
+        [
+            raw_scores_food,
             # floored_scores
         ],
         index=[
@@ -1174,6 +1237,16 @@ def infer_and_score_all(save_inference=True, save_scores=True):
                 f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}es_scores.csv",
             )
         )
+
+        if food_source:
+            df_es_scores_food.to_csv(
+                os.path.join(
+                    mu.GLOBALS.MTIST_DATASET_DIR,
+                    f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}inference_result",
+                    f"{INFERENCE_DEFAULTS.INFERENCE_PREFIX}es_scores_food.csv",
+                )
+            )
+
 
     return (df_es_scores, inferred_aijs)
 

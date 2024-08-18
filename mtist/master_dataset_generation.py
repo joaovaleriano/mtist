@@ -3,7 +3,8 @@ import os
 import numpy as np
 import pandas as pd
 
-from mtist.graphing_utils import despine, easy_subplots, savefig
+import mtist.graphing_utils as gu
+# from mtist.graphing_utils import despine, easy_subplots, savefig
 from mtist import mtist_utils as mu
 
 
@@ -74,17 +75,26 @@ def generate_mtist_master_datasets(save_datasets=True, save_example_figures=True
             conditions.append((seed, noise))
 
     # Load ground truths
-    aijs, grs = mu.load_ground_truths(mu.GLOBALS.GT_DIR)
+    if "food" in os.listdir(mu.GLOBALS.GT_DIR):
+        aijs, grs, foods = mu.load_ground_truths(mu.GLOBALS.GT_DIR, food_source=True)
+    else:
+        aijs, grs = mu.load_ground_truths(mu.GLOBALS.GT_DIR)
 
     gt_names = mu.GLOBALS.GT_NAMES
 
     ### DO THE SIMULATIONS ###
     # Index then by name, seed, noise
     results = {}
-    for name, aij, gr in zip(gt_names, aijs.values(), grs.values()):
-        for seed, noise in conditions:
-            t, y = mu.simulate(aij, gr, seed, noise, tend, dt, sample_freq)
-            results[(name, seed, noise)] = t, y
+    if "food" in os.listdir(mu.GLOBALS.GT_DIR):
+        for name, aij, gr, food in zip(gt_names, aijs.values(), grs.values(), foods.values()):
+            for seed, noise in conditions:
+                t, y = mu.simulate_w_food(aij, gr, food, seed, noise, tend, dt, sample_freq)
+                results[(name, seed, noise)] = t, y
+    else:
+        for name, aij, gr in zip(gt_names, aijs.values(), grs.values()):
+            for seed, noise in conditions:
+                t, y = mu.simulate(aij, gr, seed, noise, tend, dt, sample_freq)
+                results[(name, seed, noise)] = t, y
 
     ### MAKE RESULTS INTO FORMATTED DATAFRAME ###
 
@@ -131,9 +141,14 @@ def generate_mtist_master_datasets(save_datasets=True, save_example_figures=True
             )
 
             # Combine time/abundances dataframe with the metadata
-            formatted_master_df = pd.DataFrame(
-                time_and_abundances, columns=["time"] + [f"species_{i}" for i in range(n_species)]
-            ).assign(ground_truth=name, timeseries_id=seed, noise=noise, n_species=n_species)
+            if "food" in os.listdir(mu.GLOBALS.GT_DIR):
+                formatted_master_df = pd.DataFrame(
+                    time_and_abundances, columns=["time"] + [f"species_{i}" for i in range(n_species)] + ["food"]
+                ).assign(ground_truth=name, timeseries_id=seed, noise=noise, n_species=n_species)
+            else:
+                formatted_master_df = pd.DataFrame(
+                    time_and_abundances, columns=["time"] + [f"species_{i}" for i in range(n_species)] 
+                ).assign(ground_truth=name, timeseries_id=seed, noise=noise, n_species=n_species)
 
             # Save each dataset indexed by master dataset index
             formatted_master_df.to_csv(
@@ -162,7 +177,7 @@ def plot_master_datasets(df_results, save=False):
 
         #     Outer loop gets a 50-row dataset of all seeds at a single value of noise/ground truth (and thus, 'name')
 
-        fig, axes = easy_subplots(ncols=5, nrows=10, base_figsize=(3, 2))
+        fig, axes = gu.easy_subplots(ncols=5, nrows=10, base_figsize=(3, 2))
         for i, (ax, seed) in enumerate(zip(axes, df["seed"].unique())):
             n_species = int(n_species)
 
@@ -174,10 +189,10 @@ def plot_master_datasets(df_results, save=False):
 
         fig.suptitle(f"ground_truth_{name}_noise_{noise}")
 
-        despine(fig)
+        gu.despine(fig)
 
         if save:
-            savefig(
+            gu.savefig(
                 fig,
                 os.path.join(
                     mu.GLOBALS.MASTER_DATASET_DIR, f"master_dataset_graphed_{name}_noise_{noise}"
@@ -347,6 +362,7 @@ def generate_mtist_master_datasets_selective(
     df_results = expanded_tuple_index.join(df_results.reset_index(drop=True))
 
     # add in the n_species name
+    # print(df_results["name"].str)
     n_species_col = df_results["name"].str.split("_", expand=True)[0].to_frame(name="n_species")
     df_results = n_species_col.join(df_results)
 

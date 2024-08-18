@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from mtist import lvsimulator
+from mtist import lv_food_simulator
 from mtist import assemble_mtist as am
 from mtist import master_dataset_generation as mdg
 
@@ -178,8 +179,45 @@ def create_lv_dicts(aij, gr):
 
     return ecosystem, growth_rates
 
+def create_lv_food_dicts(aij, gr, food):
+    """Convert aij and gr, represented in ndarrays, into dictionaries compatible with ecosims package
 
-def load_ground_truths(path=None):
+    Args:
+        aij (ndarray): n_species x n_species Aij matrix (rows: focal species, columns: interacting species)
+        gr (ndarray): nspecies x 1 matrix, growth rates for each species
+
+    Returns:
+        tuple: (ecosystem, growth_rate) dictionary tuple
+    """
+    n_species = len(gr)
+
+    # 100 species requires diferent names since the order of
+    # the species ecosims requires
+    if n_species == 100:
+        species_names = NAMES_100_SP.copy()
+    else:
+        species_names = [f"species_{i}" for i in range(n_species)]
+
+    ecosystem = OrderedDict()
+    # Outer loop, for the each focal species
+    for i in range(n_species):
+        ecosystem[species_names[i]] = OrderedDict()
+
+        # Inner loop, for each of the interactions (j) for the ith focal species
+        for j in range(n_species):
+            ecosystem[species_names[i]][species_names[j]] = aij[i, j]
+
+    growth_rates = OrderedDict()
+    for i in range(n_species):
+        growth_rates[species_names[i]] = gr[i]
+
+    food_params = OrderedDict()
+    food_params["a"] = food[0]
+    food_params["beta"] = food[1]
+
+    return ecosystem, growth_rates, food_params
+
+def load_ground_truths(path=None, food_source=False):
     """Loads GTs from path with GTs saved in standardized format
 
     Args:
@@ -199,6 +237,10 @@ def load_ground_truths(path=None):
 
     aij_names = pd.Series(gt_names).str.replace("gt", "aij").to_list()
     gr_names = pd.Series(gt_names).str.replace("gt", "gr").to_list()
+
+    if food_source:
+        path_to_food = lambda v: os.path.join(path, "food", v + ".csv")
+        food_names = pd.Series(gt_names).str.replace("gt", "food").to_list()
 
     # aij_names = [
     #     "3_sp_aij_1",
@@ -234,13 +276,21 @@ def load_ground_truths(path=None):
     aij_fn_to_load = map(path_to_aijs, aij_names)
     gr_fn_to_load = map(path_to_grs, gr_names)
 
+    if food_source:
+        food_fn_to_load = map(path_to_food, food_names)
+
     aijs = OrderedDict(zip(gt_names, [np.loadtxt(fn, delimiter=",") for fn in aij_fn_to_load]))
     grs = OrderedDict(zip(gt_names, [np.loadtxt(fn, delimiter=",") for fn in gr_fn_to_load]))
 
+    if food_source:
+        foods = OrderedDict(zip(gt_names, [np.loadtxt(fn, delimiter=",") for fn in food_fn_to_load]))
+
+        return aijs, grs, foods
+        
     return aijs, grs
 
 
-def load_dataset(csv):
+def load_dataset(csv, food_source=False):
     """from csv filepath to full_df, X"""
     full_df = pd.read_csv(csv).drop(columns="Unnamed: 0")
 
@@ -251,6 +301,11 @@ def load_dataset(csv):
 
     # meta specific for this dataset
     meta_spec = full_df.drop(columns=["time"] + species_cols.to_list())
+
+    if food_source:
+        food = full_df["food"].values
+
+        return full_df, time, X, food, meta_spec
 
     return full_df, time, X, meta_spec
 
@@ -342,6 +397,42 @@ def simulate(aij, gr, seed, noise, tend, dt, sample_freq):
 
     return t, y
 
+
+def simulate_w_food(aij, gr, food, seed, noise, tend, dt, sample_freq):
+    """Simulate a timeseries for a specific aij, gr, seed, and noise level
+
+    Since the 100-species names need that 'zz' on it, if len(gr)==100,
+    species names will be initialized from global variable NAMES_100_SP.
+    """
+
+    n_species = len(gr)
+
+    # Make ndarrays into dictionaries
+    eco, gro, foo = create_lv_food_dicts(aij, gr, food)
+    # Get proper species_names
+    if n_species == 100:
+        species_names = NAMES_100_SP.copy()
+    else:
+        species_names = [f"species_{i}" for i in range(n_species)]
+
+    # Initialize the proper initial conditions
+    rng = np.random.default_rng(seed)
+    yinit_specific = dict(zip(species_names, rng.integers(1, 10, n_species) / 100))
+    yinit_specific["food"] = 1.
+
+    # Run the simulation
+    lv = lv_food_simulator.LV(ecosystem=eco.copy(), growth_rates=gro.copy(), food_source=foo.copy())
+    #print(yinit_specific)
+    t, y, t_all, y_all, yinit = lv.run_lv(
+        random_seed=seed,
+        tend=tend,
+        dt=dt,
+        yinit_specific=yinit_specific,
+        noise=noise,
+        sample_freq=sample_freq,
+    )
+
+    return t, y
 
 def calculate_es_score(true_aij, inferred_aij) -> float:
     """GRANT'S edited version to calculate ED score

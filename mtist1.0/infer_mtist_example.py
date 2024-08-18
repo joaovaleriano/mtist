@@ -14,18 +14,18 @@ from matplotlib import pyplot as plt
 
 inference_names = [
     "default",
-    "ridge_CV",
-    "lasso_CV",
-    "elasticnet_CV",
+#     "ridge_CV",
+#     "lasso_CV",
+#     "elasticnet_CV",
 ]
 
 prefixes = [f"{name}_" for name in inference_names]
 
 inference_fxn_handles = [
     im.infer_from_did,
-    im.infer_from_did_ridge_cv,
-    im.infer_from_did_lasso_cv,
-    im.infer_from_did_elasticnet_cv,
+#     im.infer_from_did_ridge_cv,
+#     im.infer_from_did_lasso_cv,
+#     im.infer_from_did_elasticnet_cv,
 ]
 
 
