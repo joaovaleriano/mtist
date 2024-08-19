@@ -13,8 +13,8 @@ from matplotlib import pyplot as plt
 # GENERATE MTIST              #
 ###############################
 
-mu.GLOBALS.MASTER_DATASET_DIR = "master_datasets_food2"
-mu.GLOBALS.MTIST_DATASET_DIR = "mtist_datasets_food2"
+mu.GLOBALS.MASTER_DATASET_DIR = "master_datasets_food"
+mu.GLOBALS.MTIST_DATASET_DIR = "mtist_datasets_food"
 mu.GLOBALS.GT_DIR = "ground_truths_food"
 mu.GLOBALS.GT_NAMES = [f"3_sp_gt_{i}" for i in range(1, 9)]
 

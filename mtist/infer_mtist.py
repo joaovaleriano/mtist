@@ -59,7 +59,7 @@ def calc_dlogydt(x, times):
         return (dlogydts, dts, times, valid_idxs_list)
 
 
-def prepare_data_for_inference(did, food_source=False):
+def prepare_data_for_inference(did, food_source=False, arithm_mean=False):
 
     # `full_df`: is the full pd.DataFrame from cvs file
     # `full_time_column`: is time column (ndarray nrows x 1)
@@ -133,9 +133,11 @@ def prepare_data_for_inference(did, food_source=False):
             gmeans_tmp = np.ones(cur_n_intervals)
             valid_int_idx_tmp = np.ones(cur_n_intervals, dtype=bool)
             for j in range(cur_n_intervals):
-                cur_gmean = np.sqrt(cur_species[j] * cur_species[j + 1])
+                if arithm_mean:
+                    cur_gmean = (cur_species[j] + cur_species[j+1])/2
+                else:
+                    cur_gmean = np.sqrt(cur_species[j] * cur_species[j + 1])
                 # cur_gmean = cur_species[j]
-                # cur_gmean = (cur_species[j] + cur_species[j+1])/2
                 gmeans_tmp[j] = cur_gmean
 
                 if cur_species[j] <= 0 or cur_species[j + 1] <= 0:
@@ -156,9 +158,11 @@ def prepare_data_for_inference(did, food_source=False):
             food_gmeans_tmp = np.ones(cur_n_intervals)
             valid_int_idx_tmp = np.ones(cur_n_intervals, dtype=bool)
             for j in range(cur_n_intervals):
-                # food_cur_gmean = np.sqrt(food_ts[j] * food_ts[j+1])
+                if arithm_mean:
+                    food_cur_gmean = (food_ts[j] + food_ts[j+1])/2
+                else:
+                    food_cur_gmean = np.sqrt(food_ts[j] * food_ts[j+1])
                 # food_cur_gmean = food_ts[j] 
-                food_cur_gmean = (food_ts[j] + food_ts[j+1])/2
                 food_gmeans_tmp[j] = food_cur_gmean
 
                 if food_ts[j] <= 0 or food_ts[j+1] <= 0:
@@ -184,12 +188,12 @@ def prepare_data_for_inference(did, food_source=False):
     return df_geom, df_dlogydt, df_nzmask, n_species
 
 
-def infer_from_did(did, debug=False, food_source=False):
+def infer_from_did(did, debug=False, food_source=False, arithm_mean=False):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did, food_source=food_source)
+    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did, food_source=food_source, arithm_mean=arithm_mean)
 
     ####### BEGIN THE INFERENCE!!!!! #######
     regs = []
@@ -598,12 +602,12 @@ def infer_from_did_ridge(did, debug=False):
         return inferred
 
 
-def infer_from_did_ridge_cv(did, debug=False, food_source=False):
+def infer_from_did_ridge_cv(did, debug=False, food_source=False, arithm_mean=False):
     """Returns  `inferred` tuple (interaction_coefficients, growth_rates)
 
     Will return info as well if debug=True"""
 
-    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did)
+    df_geom, df_dlogydt, df_nzmask, n_species = prepare_data_for_inference(did, food_source=food_source, arithm_mean=arithm_mean)
 
     regs = []
     intercepts = []
@@ -620,9 +624,14 @@ def infer_from_did_ridge_cv(did, debug=False, food_source=False):
         cur_mask = np.concatenate(df_nzmask.loc[focal_species].values)
 
         # Get the X to predict, only take valid intervals
-        cur_gmeans = np.array(
-            [np.concatenate(df_geom.loc[i, :].values) for i in range(n_species)]
-        ).T
+        if food_source:
+            cur_gmeans = np.array(
+                [np.concatenate(df_geom.loc[i, :].values) for i in range(n_species+1)]
+            ).T
+        else:
+            cur_gmeans = np.array(
+                [np.concatenate(df_geom.loc[i, :].values) for i in range(n_species)]
+            ).T
 
         cur_gmeans = cur_gmeans[cur_mask, :].copy()
 
@@ -1122,7 +1131,7 @@ def calculate_es_score(true_aij, inferred_aij) -> float:
     return ES_score
 
 
-def infer_and_score_all(save_inference=True, save_scores=True, food_source=False):
+def infer_and_score_all(save_inference=True, save_scores=True, food_source=False, arithm_mean=False):
     """returns df_es_scores, inferred_aijs"""
 
     # Load meta and gts
@@ -1152,7 +1161,7 @@ def infer_and_score_all(save_inference=True, save_scores=True, food_source=False
 
         # Complete the inference
         did = int(fn.split(".csv")[0].split("dataset_")[-1])
-        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did, food_source=food_source)
+        inferred_aij, _ = INFERENCE_DEFAULTS.INFERENCE_FUNCTION(did, food_source=food_source, arithm_mean=arithm_mean)
 
         # Obtain gt used in the dataset
         gt_used = meta.loc[did, "ground_truth"]
